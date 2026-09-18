@@ -79,15 +79,15 @@ export function Shell() {
             )
           })}
         </nav>
-        {/* Mobile hamburger nav */}
-        <div className="ml-2 md:hidden">
+        {/* Mobile: one corner menu with nav + account */}
+        <div className="ml-auto md:hidden">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" aria-label="Menu">
                 <Menu className="size-5" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
+            <DropdownMenuContent align="end" className="w-56">
               {visibleNav.map(({ to, label, icon: Icon }) => {
                 const active = location.pathname === to
                 return (
@@ -99,13 +99,22 @@ export function Shell() {
                   </DropdownMenuItem>
                 )
               })}
+              <DropdownMenuSeparator />
+              <div className="px-2 py-1.5 text-sm font-medium break-all">{profile?.name || profile?.email}</div>
+              <div className="px-2 pb-1.5 text-xs text-muted-foreground capitalize">{profile?.role}</div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={signOut} className="cursor-pointer text-destructive focus:text-destructive">
+                <LogOut className="mr-2 size-4" />
+                Sign out
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        <div className="ml-auto flex items-center gap-3">
+        {/* Desktop account menu */}
+        <div className="ml-auto hidden items-center gap-3 md:flex">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="max-w-[140px] sm:max-w-none">
+              <Button variant="ghost" size="sm">
                 <span className="truncate">{profile?.email ?? session?.user?.email ?? 'Account'}</span>
               </Button>
             </DropdownMenuTrigger>
