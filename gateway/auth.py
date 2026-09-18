@@ -42,6 +42,8 @@ async def _lookup_key(pool: asyncpg.Pool, key_hash: str) -> tuple[str, str | Non
 
     cached = _key_cache.get(key_hash)
     if cached and cached[0] > now:
+        if not cached[1]:
+            return None  # cached miss — never authenticate an empty user_id
         return cached[1], cached[2], cached[3]
 
     row = await pool.fetchrow(
