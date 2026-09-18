@@ -9,7 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
-import { LogOut, LayoutDashboard, Link2, Key, Users, ScrollText, Cable, Wrench } from 'lucide-react'
+import { LogOut, LayoutDashboard, Link2, Key, Users, ScrollText, Cable, Wrench, Menu } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
 const NAV_ITEMS: { to: string; label: string; icon: typeof LayoutDashboard; admin?: boolean }[] = [
@@ -54,13 +54,15 @@ export function Shell() {
     await supabase.auth.signOut()
   }
 
+  const visibleNav = NAV_ITEMS.filter(({ admin }) => !admin || isAdmin)
+
   return (
     <div className="flex h-screen flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-4 border-b px-6">
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b px-4 sm:gap-4 sm:px-6">
         <Link to="/overview" className="text-lg font-semibold tracking-tight hover:opacity-80 transition-opacity"><span className="hidden sm:inline">Plugmere</span><span className="sm:hidden">P</span></Link>
-        <nav className="ml-8 flex gap-1">
-          {NAV_ITEMS.map(({ to, label, icon: Icon, admin }) => {
-            if (admin && !isAdmin) return null
+        {/* Desktop nav */}
+        <nav className="ml-8 hidden gap-1 md:flex">
+          {visibleNav.map(({ to, label, icon: Icon }) => {
             const active = location.pathname === to
             return (
               <Button
@@ -77,11 +79,34 @@ export function Shell() {
             )
           })}
         </nav>
+        {/* Mobile hamburger nav */}
+        <div className="ml-2 md:hidden">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" aria-label="Menu">
+                <Menu className="size-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {visibleNav.map(({ to, label, icon: Icon }) => {
+                const active = location.pathname === to
+                return (
+                  <DropdownMenuItem key={to} asChild className={active ? 'font-semibold' : ''}>
+                    <Link to={to} className="cursor-pointer">
+                      <Icon className="mr-2 size-4" />
+                      {label}
+                    </Link>
+                  </DropdownMenuItem>
+                )
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
         <div className="ml-auto flex items-center gap-3">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm">
-                {profile?.email ?? session?.user?.email ?? 'Account'}
+              <Button variant="ghost" size="sm" className="max-w-[140px] sm:max-w-none">
+                <span className="truncate">{profile?.email ?? session?.user?.email ?? 'Account'}</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -96,10 +121,10 @@ export function Shell() {
           </DropdownMenu>
         </div>
       </header>
-      <main className="flex-1 overflow-y-auto p-6">
+      <main className="flex-1 overflow-y-auto p-4 sm:p-6">
         <Outlet />
       </main>
-      <footer className="border-t px-6 py-2 text-center text-xs text-muted-foreground">
+      <footer className="border-t px-4 py-2 text-center text-xs text-muted-foreground sm:px-6">
         Logos provided by <a href="https://logo.dev" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground">Logo.dev</a>
       </footer>
     </div>
