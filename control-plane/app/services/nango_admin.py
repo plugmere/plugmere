@@ -38,6 +38,7 @@ async def create_connect_session(
     end_user_email: str,
     end_user_name: str | None = None,
     webhook_url_override: str | None = None,
+    allowed_integrations: list[str] | None = None,
 ) -> dict[str, Any]:
     """
     Create a Nango Connect session. Returns {'token', 'expires_at', 'connect_url'}.
@@ -55,6 +56,8 @@ async def create_connect_session(
     }
     if webhook_url_override:
         payload['webhook_url_override'] = webhook_url_override
+    if allowed_integrations:
+        payload['allowed_integrations'] = allowed_integrations
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(

@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import Nango from '@nangohq/frontend'
 import { api } from '@/lib/api'
 import type { CatalogItem, UserConnection } from '@/lib/types'
 import { useAuth } from '@/lib/auth'
@@ -13,7 +12,6 @@ import { Check, Search, Trash2, Plus, ArrowLeft, Key } from 'lucide-react'
 import { useUserApiKeys, useSaveApiKey, useDeleteApiKey } from '@/hooks/use-user-api-keys'
 
 const TABS = ['All', 'Connected'] as const
-const NANGO_HOST = import.meta.env.VITE_NANGO_HOST ?? 'http://localhost:3003'
 
 export function IntegrationsPage() {
   const { profile } = useAuth()
@@ -77,12 +75,24 @@ export function IntegrationsPage() {
     }
     try {
       setConnecting(item.nango_provider_key)
-      const session = await api<{ token: string }>('/api/v1/connections/session', {
+      const session = await api<{ token: string; connect_url: string }>('/api/v1/connections/session', {
         method: 'POST',
-        body: JSON.stringify({}),
+        body: JSON.stringify({ provider: item.nango_provider_key }),
       })
-      const nango = new Nango({ connectSessionToken: session.token, host: NANGO_HOST, websocketsPath: '/connect' })
-      await nango.auth(item.nango_provider_key)
+      if (!session.connect_url) throw new Error('No connect URL returned')
+      // Magic link: Connect UI loads with the session token baked in.
+      // (The SDK popup flow needs a public key + websocket path this
+      // Nango build doesn't serve, so we open the link directly.)
+      const popup = window.open(session.connect_url, '_blank', 'width=500,height=700')
+      if (!popup) throw new Error('Popup blocked — allow popups and try again')
+      await new Promise<void>((resolve) => {
+        const timer = setInterval(() => {
+          if (popup.closed) {
+            clearInterval(timer)
+            resolve()
+          }
+        }, 500)
+      })
 
       // Server-side dedup: remove older duplicates, keep newest
       const dedup = await api<{ removed: number }>(`/api/v1/connections/dedup/${item.nango_provider_key}`, { method: 'POST' })

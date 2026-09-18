@@ -25,6 +25,7 @@ class CreateSessionRequest(BaseModel):
     # Omitted => the authenticated user themself. Admin-only override otherwise.
     email: EmailStr | None = None
     name: str | None = None
+    provider: str | None = None  # nango provider key → preselected in Connect UI
 
 
 @router.post('/session')
@@ -54,6 +55,7 @@ async def create_session(
             end_user_email=email,
             end_user_name=name,
             webhook_url_override=cfg.webhook_url_override or None,
+            allowed_integrations=[req.provider] if req.provider else None,
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f'Nango session creation failed: {e}') from e
