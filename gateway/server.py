@@ -170,6 +170,13 @@ async def reload_registry(context: Context) -> dict:
     via the call_tool function.
     """
     ctx = _get_ctx(context)
+    authorization = _get_authorization()
+    auth_result = await authenticate_request(authorization, ctx.pool)
+    if auth_result is None:
+        return {'success': False, 'error': {'code': 'UNAUTHORIZED', 'message': 'Invalid or missing API key'}}
+    row = await ctx.pool.fetchrow('SELECT role FROM users WHERE id = $1', auth_result[0])
+    if row is None or row['role'] != 'admin':
+        return {'success': False, 'error': {'code': 'FORBIDDEN', 'message': 'Admin only'}}
     count = await ctx.registry.load_from_db(ctx.pool)
     return {'success': True, 'tools_loaded': count, 'providers': ctx.registry.providers()}
 
@@ -228,8 +235,12 @@ async def _handle_tool_call(
         return {'success': False, 'error': {'code': 'UNAUTHORIZED', 'message': 'Invalid or missing API key'}}
 
     user_id, api_key_id, allowed_tools = auth_result
-    raw_key = authorization.split(' ', 1)[1].strip() if ' ' in authorization else authorization
-    key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+    if api_key_id is None:
+        # OAuth caller: key rate limits on stable user_id, not the rotating token
+        key_hash = f'oauth:{user_id}'
+    else:
+        raw_key = authorization.split(' ', 1)[1].strip() if ' ' in authorization else authorization
+        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
 
     # 1b. Connection check — user must have connected the provider
     my_providers = await _get_user_providers(ctx.pool, user_id)

@@ -1,15 +1,19 @@
 """Tests for the gateway — auth, registry, executor, metrics."""
 
+import os
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock
 
+import jwt as pyjwt
 import pytest
 
 # Ensure gateway package is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gateway.auth import _extract_bearer, _hash_key
+from gateway.auth import _extract_bearer, _hash_key, _verify_oauth_jwt
 from gateway.executor import _extract_body, _fill_path_params
 from gateway.registry import Registry, ToolDef
 
@@ -40,6 +44,50 @@ class TestAuth:
     def test_extract_bearer_malformed(self):
         assert _extract_bearer('Bearer') is None
         assert _extract_bearer('Bearer ') is None
+
+
+class TestOAuthJwt:
+    """Gateway OAuth JWT branch: scope enforcement + live revocation."""
+
+    def _mint(self, sub='u1', grant='g1', scope='mcp:tools', secret='test-secret'):
+        return pyjwt.encode(
+            {'iss': 'x', 'sub': sub, 'grant_id': grant, 'scope': scope,
+             'iat': int(time.time()), 'exp': int(time.time()) + 3600},
+            secret, algorithm='HS256',
+        )
+
+    async def _verify(self, token, row, secret='test-secret'):
+        os.environ['OAUTH_JWT_SECRET'] = secret
+        pool = AsyncMock()
+        pool.fetchrow.return_value = row
+        return await _verify_oauth_jwt(token, pool)
+
+    @pytest.mark.asyncio
+    async def test_valid_token_accepted(self):
+        token = self._mint()
+        res = await self._verify(token, {'revoked_at': None, 'status': 'active'})
+        assert res == ('u1', None, [])
+
+    @pytest.mark.asyncio
+    async def test_missing_scope_rejected(self):
+        token = self._mint(scope='other')
+        assert await self._verify(token, {'revoked_at': None, 'status': 'active'}) is None
+
+    @pytest.mark.asyncio
+    async def test_revoked_grant_rejected(self):
+        token = self._mint()
+        row = {'revoked_at': datetime.now(timezone.utc), 'status': 'active'}
+        assert await self._verify(token, row) is None
+
+    @pytest.mark.asyncio
+    async def test_disabled_user_rejected(self):
+        token = self._mint()
+        assert await self._verify(token, {'revoked_at': None, 'status': 'disabled'}) is None
+
+    @pytest.mark.asyncio
+    async def test_bad_signature_rejected(self):
+        token = self._mint(secret='wrong-secret')
+        assert await self._verify(token, {'revoked_at': None, 'status': 'active'}) is None
 
 
 # ── Registry tests ───────────────────────────────────────────────────────────

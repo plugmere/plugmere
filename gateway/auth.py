@@ -21,10 +21,6 @@ log = logging.getLogger(__name__)
 _key_cache: dict[str, tuple[float, str, str | None, list[str]]] = {}
 _CACHE_TTL = 60  # seconds
 
-# OAuth JWT cache: token_hash -> (expiry, result)
-_oauth_cache: dict[str, tuple[float, tuple[str, None, list[str]] | None]] = {}
-_OAUTH_CACHE_TTL = 30
-
 
 def _hash_key(raw_key: str) -> str:
     return hashlib.sha256(raw_key.encode()).hexdigest()
@@ -84,40 +80,45 @@ async def _lookup_key(pool: asyncpg.Pool, key_hash: str) -> tuple[str, str | Non
     return user_id, api_key_id, allowed_tools
 
 
-def _verify_oauth_jwt(token: str, pool: asyncpg.Pool) -> tuple[str, None, list[str]] | None:
+async def _verify_oauth_jwt(token: str, pool: asyncpg.Pool) -> tuple[str, None, list[str]] | None:
     """Verify an OAuth JWT issued by our control plane.
 
+    Checks signature, expiry, required scope, live grant revocation,
+    and user status on EVERY call (no positive caching) so a revoked
+    grant or disabled account goes blind in <60s.
     Returns (user_id, api_key_id=None, allowed_tools=[]) or None.
     """
     secret = os.getenv("OAUTH_JWT_SECRET", "")
     if not secret:
         return None
 
-    now = time.time()
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-
-    cached = _oauth_cache.get(token_hash)
-    if cached and cached[0] > now:
-        return cached[1]
-
     try:
         claims = pyjwt.decode(token, secret, algorithms=["HS256"])
-    except pyjwt.ExpiredSignatureError:
-        _oauth_cache[token_hash] = (now + _OAUTH_CACHE_TTL, None)
-        return None
     except pyjwt.InvalidTokenError:
-        _oauth_cache[token_hash] = (now + _OAUTH_CACHE_TTL, None)
         return None
 
     user_id = claims.get("sub")
     grant_id = claims.get("grant_id")
     if not user_id or not grant_id:
-        _oauth_cache[token_hash] = (now + _OAUTH_CACHE_TTL, None)
         return None
 
-    result: tuple[str, None, list[str]] | None = (user_id, None, [])
-    _oauth_cache[token_hash] = (now + _OAUTH_CACHE_TTL, result)
-    return result
+    # Scope enforcement: consent promises mcp:tools, gateway holds it
+    scopes = (claims.get("scope") or "").split()
+    if "mcp:tools" not in scopes:
+        log.warning("OAuth token without mcp:tools scope: grant=%s", grant_id)
+        return None
+
+    # Live revocation + status check (no cache — revoke must propagate fast)
+    row = await pool.fetchrow(
+        "SELECT g.revoked_at, u.status FROM oauth_grants g "
+        "JOIN users u ON u.id = g.user_id "
+        "WHERE g.id = $1 AND g.user_id = $2",
+        grant_id, user_id,
+    )
+    if row is None or row["revoked_at"] is not None or row["status"] != "active":
+        return None
+
+    return (user_id, None, [])
 
 
 async def authenticate_request(
@@ -139,7 +140,7 @@ async def authenticate_request(
         return result
 
     # Fall back to OAuth JWT
-    return _verify_oauth_jwt(raw_token, pool)
+    return await _verify_oauth_jwt(raw_token, pool)
 
 
 def invalidate_key_cache(key_hash: str) -> None:
