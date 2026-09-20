@@ -36,6 +36,11 @@ class Config:
         # webhook-only dev setups still boot; fails closed when unset.
         self.supabase_url = os.getenv('SUPABASE_URL', '')
         self.supabase_jwt_secret = os.getenv('SUPABASE_JWT_SECRET', '')
+        # Abuse alerts (Phase 8 #10): GitHub Actions cron hits /alerts/check
+        # with ALERTS_CRON_SECRET; violations go out via Brevo.
+        self.alerts_cron_secret = os.getenv('ALERTS_CRON_SECRET', '')
+        self.brevo_api_key = os.getenv('BREVO_API_KEY', '')
+        self.alert_to = os.getenv('ALERT_TO', '')
 
 
 _config: Config | None = None

@@ -1,0 +1,14 @@
+name: Abuse monitor
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: >
+          curl -sS -X POST
+          https://plugmere-api.onrender.com/api/v1/alerts/check
+          -H "X-Cron-Secret: ${{ secrets.ALERTS_CRON_SECRET }}"

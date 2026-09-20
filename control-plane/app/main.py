@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import get_config
 from .db import apply_schema, close_pool, get_pool
 from .routers import (
+    alerts,
     api_keys,
     auth,
     connections,
@@ -72,6 +73,7 @@ app.include_router(tools.router)
 app.include_router(metrics.router)
 app.include_router(user_api_keys.router)
 app.include_router(oauth.router)
+app.include_router(alerts.router)
 
 
 @app.get('/api/v1/health')
