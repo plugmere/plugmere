@@ -2,7 +2,11 @@ name: Abuse monitor
 on:
   schedule:
     - cron: '*/15 * * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      test:
+        description: 'Send test email (true/false)'
+        default: 'false'
 
 jobs:
   check:
@@ -10,5 +14,5 @@ jobs:
     steps:
       - run: >
           curl -sS -X POST
-          https://plugmere-api.onrender.com/api/v1/alerts/check
+          "https://plugmere-api.onrender.com/api/v1/alerts/check${{ github.event.inputs.test == 'true' && '?test=1' || '' }}"
           -H "X-Cron-Secret: ${{ secrets.ALERTS_CRON_SECRET }}"
