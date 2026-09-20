@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { api } from '@/lib/api'
@@ -9,7 +9,6 @@ import { supabase } from '@/lib/supabase'
 
 export function OAuthApprovePage() {
   const [params] = useSearchParams()
-  const navigate = useNavigate()
   const { session } = useAuth()
   const clientId = params.get('client_id') || ''
   const redirectUri = params.get('redirect_uri') || ''
