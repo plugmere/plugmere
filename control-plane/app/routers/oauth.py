@@ -19,7 +19,7 @@ from uuid import UUID
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from ..config import get_config
@@ -126,8 +126,8 @@ def _parse_form_or_json(request: Request, body: bytes) -> dict:
     if 'application/json' in content_type:
         try:
             return json.loads(body)
-        except (json.JSONDecodeError, ValueError):
-            raise HTTPException(status_code=400, detail='Invalid JSON body')
+        except (json.JSONDecodeError, ValueError) as e:
+            raise HTTPException(status_code=400, detail='Invalid JSON body') from e
     # Default: form-urlencoded
     from urllib.parse import parse_qs
     parsed = parse_qs(body.decode())
