@@ -135,6 +135,24 @@ def _parse_form_or_json(request: Request, body: bytes) -> dict:
     return {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}
 
 
+# ── DCR rate limit (in-memory sliding window; single instance) ──────────────
+# oauth_clients is append-only — without this, anyone can bloat it.
+
+_DCR_HITS: dict[str, list[float]] = {}
+_DCR_MAX_PER_HOUR = 20
+_DCR_WINDOW = 3600
+
+
+def _dcr_allowed(ip: str) -> bool:
+    now = time.time()
+    hits = [t for t in _DCR_HITS.get(ip, []) if now - t < _DCR_WINDOW]
+    if len(hits) >= _DCR_MAX_PER_HOUR:
+        return False
+    hits.append(now)
+    _DCR_HITS[ip] = hits
+    return True
+
+
 def _validate_redirect_uri(uri: str, allowed: list[str]) -> bool:
     """Validate redirect URI. Accept exact matches + port-agnostic loopback per RFC 8252."""
     if uri in allowed:
@@ -194,7 +212,10 @@ async def oauth_metadata() -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.post('/api/v1/oauth/register', status_code=201)
-async def register_client(req: RegisterRequest) -> dict:
+async def register_client(req: RegisterRequest, request: Request) -> dict:
+    ip = request.client.host if request.client else 'unknown'
+    if not _dcr_allowed(ip):
+        raise HTTPException(status_code=429, detail='Too many registrations — try again later')
     if not req.redirect_uris:
         raise HTTPException(status_code=422, detail='redirect_uris required')
 
