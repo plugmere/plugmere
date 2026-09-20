@@ -219,6 +219,27 @@ async def status_incidents(limit: int = 20) -> list[dict]:
     return [{'summary': r['target'], 'at': r['created_at'].isoformat()} for r in rows]
 
 
+@router.get('/api/v1/status/providers')
+async def status_providers() -> list[dict]:
+    """Per-provider health from recent traffic (last 1h): calls, errors, state."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        "SELECT provider, count(*) AS calls, count(*) FILTER (WHERE status = 'error') AS errors, "
+        'max(created_at) AS last_seen FROM tool_calls '
+        "WHERE created_at > now() - make_interval(hours => 1) GROUP BY provider ORDER BY provider"
+    )
+    return [
+        {
+            'provider': r['provider'], 'calls': r['calls'], 'errors': r['errors'],
+            'error_rate': (r['errors'] / r['calls']) if r['calls'] else 0,
+            'state': 'down' if r['calls'] >= 5 and r['errors'] == r['calls'] else (
+                'flaky' if r['errors'] > 0 else 'up'),
+            'last_seen': r['last_seen'].isoformat(),
+        }
+        for r in rows
+    ]
+
+
 class SubscribeRequest(BaseModel):
     email: str
 
