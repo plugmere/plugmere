@@ -55,10 +55,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS allowlist — UI origin only (§3.13)
+# CORS allowlist — UI + status origins only (§3.13)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[get_config().ui_url],
+    allow_origins=[o for o in [get_config().ui_url, get_config().status_url] if o],
     allow_credentials=True,
     allow_methods=['*'],
     allow_headers=['*'],

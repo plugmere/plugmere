@@ -155,7 +155,7 @@ async def check_alerts(request: Request, test: bool = False) -> dict:
         await _record_status(pool, 'neon', True, int((time.monotonic() - db_start) * 1000))
     except Exception:
         await _record_status(pool, 'neon', False, 0)
-    nango_ok, nango_ms = await _probe(cfg.nango_host.rstrip('/') + '/health')
+    nango_ok, nango_ms = await _probe(cfg.nango_host.rstrip('/') + '/')
     await _record_status(pool, 'nango', nango_ok, nango_ms)
 
     if findings:

@@ -27,6 +27,7 @@ class Config:
             os.path.join(os.path.dirname(__file__), '..', '..', 'nango-mcp', 'providers.json'),
         )
         self.ui_url = os.getenv('UI_URL', 'http://localhost:5173')
+        self.status_url = os.getenv('STATUS_URL', '')
         self.app_url = os.getenv('APP_URL', 'http://host.docker.internal:8001')
         # Optional per-session webhook routing; older Nango builds reject the key,
         # so only sent when explicitly set (deploy-time: our public control-plane URL).
