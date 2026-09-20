@@ -56,11 +56,15 @@ async def _send_brevo(subject: str, body: str) -> bool:
 
 
 @router.post('/api/v1/alerts/check')
-async def check_alerts(request: Request) -> dict:
+async def check_alerts(request: Request, test: bool = False) -> dict:
     cfg = get_config()
     secret = request.headers.get('X-Cron-Secret', '')
     if not cfg.alerts_cron_secret or secret != cfg.alerts_cron_secret:
         raise HTTPException(status_code=401, detail='Bad cron secret')
+
+    if test:
+        sent = await _send_brevo('[Plugmere] test alert', 'Test fire — the alarm works. No action needed.')
+        return {'ok': True, 'test': True, 'emailed': sent}
 
     pool = await get_pool()
     findings: list[str] = []
