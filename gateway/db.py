@@ -125,6 +125,47 @@ CREATE TABLE IF NOT EXISTS user_api_keys (
     UNIQUE(user_id, provider)
 );
 CREATE INDEX IF NOT EXISTS idx_user_api_keys_user ON user_api_keys(user_id);
+
+-- Gateway OAuth (Phase 8): dynamic clients, auth codes, grants, invite allowlist
+CREATE TABLE IF NOT EXISTS oauth_clients (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    client_id     TEXT UNIQUE NOT NULL,
+    client_secret TEXT,
+    name          TEXT NOT NULL DEFAULT '',
+    redirect_uris TEXT[] NOT NULL DEFAULT '{}',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_clients_cid ON oauth_clients(client_id);
+
+CREATE TABLE IF NOT EXISTS oauth_codes (
+    code          TEXT PRIMARY KEY,
+    client_id     TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    redirect_uri  TEXT NOT NULL,
+    code_challenge TEXT,
+    scopes        TEXT[] NOT NULL DEFAULT '{}',
+    expires_at    TIMESTAMPTZ NOT NULL,
+    used_at       TIMESTAMPTZ,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS oauth_grants (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id       UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    client_id     TEXT NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+    scopes        TEXT[] NOT NULL DEFAULT '{}',
+    refresh_hash  TEXT,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    revoked_at    TIMESTAMPTZ,
+    last_used_at  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_grants_user ON oauth_grants(user_id);
+
+CREATE TABLE IF NOT EXISTS invite_list (
+    email       TEXT PRIMARY KEY,
+    added_by    UUID REFERENCES users(id),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 

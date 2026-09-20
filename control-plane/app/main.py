@@ -23,6 +23,7 @@ from .routers import (
     connections,
     connections_api,
     metrics,
+    oauth,
     tools,
     user_api_keys,
     users,
@@ -70,6 +71,7 @@ app.include_router(api_keys.router)
 app.include_router(tools.router)
 app.include_router(metrics.router)
 app.include_router(user_api_keys.router)
+app.include_router(oauth.router)
 
 
 @app.get('/api/v1/health')

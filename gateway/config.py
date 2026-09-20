@@ -33,7 +33,9 @@ class Config:
     log_level: str = field(default_factory=lambda: os.getenv('LOG_LEVEL', 'INFO'))
     port: int = field(default_factory=lambda: int(os.getenv('PORT', '8000')))
 
-    # ── Abuse protection ──────────────────────────────────────
+    # ── Gateway OAuth (Phase 8) ─────────────────────────────────────
+    oauth_jwt_secret: str = field(default_factory=lambda: os.getenv('OAUTH_JWT_SECRET', ''))
+    app_url: str = field(default_factory=lambda: os.getenv('APP_URL', ''))
     daily_quota: int = field(default_factory=lambda: int(os.getenv('DAILY_QUOTA', '5000')))
     rate_limit_per_minute: int = field(default_factory=lambda: int(os.getenv('RATE_LIMIT_PER_MINUTE', '60')))
     provider_cap_per_hour: int = field(default_factory=lambda: int(os.getenv('PROVIDER_CAP_PER_HOUR', '200')))

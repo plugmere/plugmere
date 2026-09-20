@@ -17,9 +17,11 @@ const NAV_ITEMS: { to: string; label: string; icon: typeof LayoutDashboard; admi
   { to: '/integrations', label: 'Integrations', icon: Link2 },
   { to: '/connect', label: 'Connect', icon: Cable },
   { to: '/api-keys', label: 'API Keys', icon: Key },
+  { to: '/connected-apps', label: 'Connected Apps', icon: Key },
   { to: '/users', label: 'Users', icon: Users, admin: true },
   { to: '/tools', label: 'Tools', icon: Wrench, admin: true },
   { to: '/logs', label: 'Logs', icon: ScrollText, admin: true },
+  { to: '/invites', label: 'Invites', icon: Users, admin: true },
 ]
 
 export function RequireAuth() {

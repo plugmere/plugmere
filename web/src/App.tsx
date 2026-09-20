@@ -10,6 +10,9 @@ import { ApiKeysPage } from '@/pages/api-keys'
 import { UsersPage } from '@/pages/users'
 import { LogsPage } from '@/pages/logs'
 import { ToolsPage } from '@/pages/tools'
+import { OAuthApprovePage } from '@/pages/oauth-approve'
+import { ConnectedAppsPage } from '@/pages/connected-apps'
+import { InvitesPage } from '@/pages/invites'
 import { Toaster } from '@/components/ui/sonner'
 
 const queryClient = new QueryClient({
@@ -23,16 +26,19 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/oauth/approve" element={<OAuthApprovePage />} />
             <Route element={<RequireAuth />}>
               <Route element={<Shell />}>
                 <Route path="/overview" element={<OverviewPage />} />
                 <Route path="/integrations" element={<IntegrationsPage />} />
                 <Route path="/connect" element={<ConnectPage />} />
                 <Route path="/api-keys" element={<ApiKeysPage />} />
+                <Route path="/connected-apps" element={<ConnectedAppsPage />} />
                 <Route element={<RequireAdmin />}>
                   <Route path="/tools" element={<ToolsPage />} />
                   <Route path="/users" element={<UsersPage />} />
                   <Route path="/logs" element={<LogsPage />} />
+                  <Route path="/invites" element={<InvitesPage />} />
                 </Route>
               </Route>
             </Route>
