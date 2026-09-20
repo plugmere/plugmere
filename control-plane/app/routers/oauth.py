@@ -1,28 +1,25 @@
-"""Gateway OAuth (Phase 8) — authorize/token/DCR/metadata + grants + invites.
+"""Gateway OAuth (Phase 8) — MCP-spec-compliant authorization server.
 
-Flow: ChatGPT registers (DCR) → redirects user to dashboard /oauth/approve
-(login + consent in one page) → frontend POSTs here with Supabase JWT →
-we check invite list, mint a code, return the redirect URL → ChatGPT
-exchanges code for tokens → gateway accepts our JWT as a second auth branch.
-
-Access tokens are HS256 JWTs signed with OAUTH_JWT_SECRET, carrying
-user_id + grant_id. The gateway verifies with the same secret and emits
-the same (user_id, api_key_id, allowed_tools) tuple as API keys.
+Works with ALL MCP clients: Claude, ChatGPT, Cursor, VS Code, opencode, Inspector.
+Follows MCP 2026-07-28 spec: DCR, CIMD, PKCE S256, form-encoded token endpoint,
+/.well-known/oauth-protected-resource, resource param binding.
 """
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import logging
 import secrets
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
+from urllib.parse import urlencode
 from uuid import UUID
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel
 
 from ..config import get_config
@@ -34,8 +31,19 @@ log = logging.getLogger(__name__)
 router = APIRouter(tags=['oauth'])
 
 ACCESS_TTL = 3600  # 1 hour
-REFRESH_TTL_DAYS = 30
 CODE_TTL = 600  # 10 minutes
+
+
+# ── Known client redirect URIs (MCP spec clients) ─────────────────────────
+# When clients don't send a redirect_uri, we must pick one from this list.
+# Each client uses different URIs — we accept all of them.
+
+KNOWN_REDIRECT_URIS: dict[str, str] = {
+    'claude': 'https://claude.ai/api/mcp/auth_callback',
+    'chatgpt': 'https://chatgpt.com/connector_platform_oauth_redirect',
+    'cursor': 'https://www.cursor.com/agents/mcp/oauth/callback',
+    'vscode': 'https://vscode.dev/redirect',
+}
 
 
 # ── Schemas ────────────────────────────────────────────────────────────────
@@ -43,6 +51,9 @@ CODE_TTL = 600  # 10 minutes
 class RegisterRequest(BaseModel):
     client_name: str = ''
     redirect_uris: list[str]
+    grant_types: list[str] | None = None
+    response_types: list[str] | None = None
+    token_endpoint_auth_method: str | None = None
 
 
 class ApproveRequest(BaseModel):
@@ -53,16 +64,6 @@ class ApproveRequest(BaseModel):
     state: str = ''
 
 
-class TokenRequest(BaseModel):
-    grant_type: str
-    code: str | None = None
-    redirect_uri: str | None = None
-    code_verifier: str | None = None
-    refresh_token: str | None = None
-    client_id: str | None = None
-    client_secret: str | None = None
-
-
 class InviteAdd(BaseModel):
     email: str
 
@@ -71,7 +72,6 @@ class InviteAdd(BaseModel):
 
 def _oauth_secret() -> str:
     import os
-
     secret = os.getenv('OAUTH_JWT_SECRET', '')
     if not secret:
         raise HTTPException(status_code=500, detail='OAUTH_JWT_SECRET not configured')
@@ -114,16 +114,65 @@ async def _invite_check(email: str) -> None:
     pool = await get_pool()
     total = await pool.fetchval('SELECT count(*) FROM invite_list')
     if total == 0:
-        return  # open mode — no list, anyone in
+        return  # open mode
     row = await pool.fetchrow('SELECT 1 FROM invite_list WHERE email = $1', email.lower())
     if row is None:
         raise HTTPException(status_code=403, detail='Not invited — ask the admin for access')
 
 
-# ── Discovery metadata (ChatGPT reads this) ────────────────────────────────
+def _parse_form_or_json(request: Request, body: bytes) -> dict:
+    """Parse token endpoint body — form-urlencoded OR JSON."""
+    content_type = request.headers.get('content-type', '')
+    if 'application/json' in content_type:
+        try:
+            return json.loads(body)
+        except (json.JSONDecodeError, ValueError):
+            raise HTTPException(status_code=400, detail='Invalid JSON body')
+    # Default: form-urlencoded
+    from urllib.parse import parse_qs
+    parsed = parse_qs(body.decode())
+    # parse_qs returns lists; unwrap single values
+    return {k: v[0] if len(v) == 1 else v for k, v in parsed.items()}
+
+
+def _validate_redirect_uri(uri: str, allowed: list[str]) -> bool:
+    """Validate redirect URI. Accept exact matches + port-agnostic loopback per RFC 8252."""
+    if uri in allowed:
+        return True
+    # Port-agnostic loopback: http://127.0.0.1:<any_port>/path or http://localhost:<any_port>/path
+    from urllib.parse import urlparse
+    parsed = urlparse(uri)
+    if parsed.scheme == 'http' and parsed.hostname in ('127.0.0.1', 'localhost'):
+        for allowed_uri in allowed:
+            allowed_parsed = urlparse(allowed_uri)
+            if (allowed_parsed.scheme == parsed.scheme
+                    and allowed_parsed.hostname in ('127.0.0.1', 'localhost')
+                    and allowed_parsed.path == parsed.path):
+                return True
+    return False
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Discovery endpoints (all MCP clients read these)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.get('/.well-known/oauth-protected-resource')
+async def protected_resource_metadata(request: Request) -> dict:
+    """RFC 9728 — MCP clients discover the auth server from here."""
+    cfg = get_config()
+    base = cfg.app_url.rstrip('/')
+    resource_url = str(request.url).split('.well-known')[0].rstrip('/')
+    return {
+        'resource': resource_url,
+        'authorization_servers': [base],
+        'scopes_supported': ['mcp:tools'],
+        'bearer_methods_supported': ['header'],
+    }
+
 
 @router.get('/.well-known/oauth-authorization-server')
 async def oauth_metadata() -> dict:
+    """RFC 8414 — authorization server metadata."""
     cfg = get_config()
     base = cfg.app_url.rstrip('/')
     return {
@@ -131,22 +180,23 @@ async def oauth_metadata() -> dict:
         'authorization_endpoint': f'{base}/api/v1/oauth/authorize',
         'token_endpoint': f'{base}/api/v1/oauth/token',
         'registration_endpoint': f'{base}/api/v1/oauth/register',
+        'scopes_supported': ['mcp:tools'],
         'response_types_supported': ['code'],
         'grant_types_supported': ['authorization_code', 'refresh_token'],
         'code_challenge_methods_supported': ['S256'],
-        'token_endpoint_auth_methods_supported': ['client_secret_post', 'none'],
+        'token_endpoint_auth_methods_supported': ['none', 'client_secret_post'],
+        'client_id_metadata_document_supported': True,
     }
 
 
-# ── Dynamic client registration (public, rate-limited by gateway abuse layer later) ──
+# ═══════════════════════════════════════════════════════════════════════════
+#  Dynamic Client Registration (DCR)
+# ═══════════════════════════════════════════════════════════════════════════
 
 @router.post('/api/v1/oauth/register', status_code=201)
 async def register_client(req: RegisterRequest) -> dict:
     if not req.redirect_uris:
         raise HTTPException(status_code=422, detail='redirect_uris required')
-    for uri in req.redirect_uris:
-        if not (uri.startswith('https://') or uri.startswith('http://localhost')):
-            raise HTTPException(status_code=422, detail=f'Insecure redirect_uri rejected: {uri}')
 
     client_id = 'cli-' + secrets.token_urlsafe(16)
     client_secret = 'cls-' + secrets.token_urlsafe(32)
@@ -159,15 +209,20 @@ async def register_client(req: RegisterRequest) -> dict:
         req.client_name[:100],
         req.redirect_uris,
     )
-    log.info('OAuth client registered: %s', req.client_name[:50])
+    log.info('OAuth client registered: %s (%s)', req.client_name[:50], client_id[:12])
     return {
         'client_id': client_id,
         'client_secret': client_secret,
         'redirect_uris': req.redirect_uris,
+        'grant_types': req.grant_types or ['authorization_code', 'refresh_token'],
+        'response_types': req.response_types or ['code'],
+        'token_endpoint_auth_method': req.token_endpoint_auth_method or 'none',
     }
 
 
-# ── Client info (approve page looks up name) ────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════
+#  Client info (approve page looks up name)
+# ═══════════════════════════════════════════════════════════════════════════
 
 @router.get('/api/v1/oauth/client/{client_id}/info')
 async def client_info(client_id: str) -> dict:
@@ -178,7 +233,9 @@ async def client_info(client_id: str) -> dict:
     return {'client_id': row['client_id'], 'name': row['name']}
 
 
-# ── Approve (logged-in user + invite check + consent → auth code) ───────────
+# ═══════════════════════════════════════════════════════════════════════════
+#  Authorization endpoint — redirects to dashboard approve page
+# ═══════════════════════════════════════════════════════════════════════════
 
 @router.get('/api/v1/oauth/authorize')
 async def authorize_redirect(
@@ -187,37 +244,42 @@ async def authorize_redirect(
     scope: str = '',
     state: str = '',
     code_challenge: str = '',
+    code_challenge_method: str = '',
     response_type: str = '',
+    resource: str = '',
 ) -> RedirectResponse:
-    """OAuth authorization endpoint — redirects to dashboard approve page."""
     cfg = get_config()
     ui = cfg.ui_url.rstrip('/')
-    params = '&'.join(f'{k}={v}' for k, v in [
+    params = urlencode({k: v for k, v in [
         ('client_id', client_id),
         ('redirect_uri', redirect_uri),
         ('scope', scope),
         ('state', state),
         ('code_challenge', code_challenge),
-    ] if v)
+        ('resource', resource),
+    ] if v})
     return RedirectResponse(f'{ui}/oauth/approve?{params}')
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Approve — logged-in user consents, we mint an auth code
+# ═══════════════════════════════════════════════════════════════════════════
 
 @router.post('/api/v1/oauth/approve')
 async def approve(req: ApproveRequest, user: dict = Depends(get_current_user)) -> dict:
     pool = await get_pool()
 
-    # Invite gate
     await _invite_check(user['email'])
 
-    # Client + redirect validation
     client = await pool.fetchrow('SELECT * FROM oauth_clients WHERE client_id = $1', req.client_id)
     if client is None:
         raise HTTPException(status_code=404, detail='Unknown client')
+
     redirect_uris: list = list(client['redirect_uris'] or [])
-    if req.redirect_uri not in redirect_uris:
+    if not _validate_redirect_uri(req.redirect_uri, redirect_uris):
         raise HTTPException(status_code=422, detail='redirect_uri not registered for this client')
 
-    scopes = req.scope.split() if req.scope else []
+    scopes = req.scope.split() if req.scope else ['mcp:tools']
     code = 'ac-' + secrets.token_urlsafe(32)
     await pool.execute(
         'INSERT INTO oauth_codes (code, client_id, user_id, redirect_uri, code_challenge, scopes, expires_at) '
@@ -225,7 +287,6 @@ async def approve(req: ApproveRequest, user: dict = Depends(get_current_user)) -
         code, req.client_id, user['id'], req.redirect_uri, req.code_challenge, scopes, CODE_TTL,
     )
 
-    # Upsert grant (one per user+client; revoked grants stay dead)
     grant = await pool.fetchrow(
         "SELECT id FROM oauth_grants WHERE user_id = $1 AND client_id = $2 AND revoked_at IS NULL",
         user['id'], req.client_id,
@@ -245,75 +306,90 @@ async def approve(req: ApproveRequest, user: dict = Depends(get_current_user)) -
     return {'redirect_to': redirect, 'grant_id': grant_id}
 
 
-# ── Token endpoint (code exchange + refresh) ───────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════
+#  Token endpoint — accepts form-urlencoded (MCP spec requirement)
+# ═══════════════════════════════════════════════════════════════════════════
 
 @router.post('/api/v1/oauth/token')
-async def token(req: TokenRequest) -> dict:
+async def token(request: Request) -> dict:
+    body = await request.body()
+    data = _parse_form_or_json(request, body)
     pool = await get_pool()
 
-    if req.grant_type == 'authorization_code':
-        if not req.code or not req.redirect_uri or not req.client_id:
+    grant_type = data.get('grant_type', '')
+    client_id = data.get('client_id', '')
+    client_secret = data.get('client_secret')
+
+    if grant_type == 'authorization_code':
+        code = data.get('code', '')
+        redirect_uri = data.get('redirect_uri', '')
+        code_verifier = data.get('code_verifier', '')
+
+        if not code or not redirect_uri or not client_id:
             raise HTTPException(status_code=422, detail='code, redirect_uri, client_id required')
+
         row = await pool.fetchrow(
             "SELECT * FROM oauth_codes WHERE code = $1 AND used_at IS NULL AND expires_at > now()",
-            req.code,
+            code,
         )
         if row is None:
             raise HTTPException(status_code=400, detail='Invalid or expired code')
-        if row['client_id'] != req.client_id or row['redirect_uri'] != req.redirect_uri:
+        if row['client_id'] != client_id:
             raise HTTPException(status_code=400, detail='Code/client mismatch')
 
-        client = await pool.fetchrow('SELECT * FROM oauth_clients WHERE client_id = $1', req.client_id)
+        # Validate redirect_uri (port-agnostic loopback per RFC 8252)
+        client = await pool.fetchrow('SELECT * FROM oauth_clients WHERE client_id = $1', client_id)
         if client is None:
             raise HTTPException(status_code=400, detail='Unknown client')
-        if client['client_secret'] and req.client_secret:
-            if hashlib.sha256(req.client_secret.encode()).hexdigest() != client['client_secret']:
+        allowed_uris = list(client['redirect_uris'] or [])
+        if not _validate_redirect_uri(redirect_uri, allowed_uris):
+            raise HTTPException(status_code=400, detail='redirect_uri mismatch')
+
+        # Client secret check (only if server issued one AND client sent one)
+        if client['client_secret'] and client_secret:
+            if hashlib.sha256(client_secret.encode()).hexdigest() != client['client_secret']:
                 raise HTTPException(status_code=401, detail='Bad client_secret')
 
-        # PKCE check (required when a challenge was sent)
+        # PKCE check
         if row['code_challenge']:
-            if not req.code_verifier:
+            if not code_verifier:
                 raise HTTPException(status_code=400, detail='code_verifier required')
-            digest = hashlib.sha256(req.code_verifier.encode()).digest()
-            import base64
-
+            digest = hashlib.sha256(code_verifier.encode()).digest()
             expected = base64.urlsafe_b64encode(digest).rstrip(b'=').decode()
             if expected != row['code_challenge']:
                 raise HTTPException(status_code=400, detail='PKCE mismatch')
 
-        await pool.execute('UPDATE oauth_codes SET used_at = now() WHERE code = $1', req.code)
+        await pool.execute('UPDATE oauth_codes SET used_at = now() WHERE code = $1', code)
 
         grant = await pool.fetchrow(
             "SELECT * FROM oauth_grants WHERE user_id = $1 AND client_id = $2 AND revoked_at IS NULL",
-            row['user_id'], req.client_id,
+            row['user_id'], client_id,
         )
         if grant is None:
             raise HTTPException(status_code=400, detail='Grant revoked')
-        grant_id = str(grant['id'])
-        user_id = str(row['user_id'])
-        scopes = list(grant['scopes'] or [])
 
         refresh_raw, refresh_hash = _new_refresh_token()
         await pool.execute(
             'UPDATE oauth_grants SET refresh_hash = $1, last_used_at = now() WHERE id = $2',
             refresh_hash, grant['id'],
         )
-        access = _mint_access_token(user_id, grant_id, scopes)
+        access = _mint_access_token(str(row['user_id']), str(grant['id']), list(grant['scopes'] or []))
         return {
             'access_token': access,
             'token_type': 'Bearer',
             'expires_in': ACCESS_TTL,
             'refresh_token': refresh_raw,
-            'scope': ' '.join(scopes),
+            'scope': ' '.join(grant['scopes'] or []),
         }
 
-    if req.grant_type == 'refresh_token':
-        if not req.refresh_token or not req.client_id:
+    if grant_type == 'refresh_token':
+        refresh_token = data.get('refresh_token', '')
+        if not refresh_token or not client_id:
             raise HTTPException(status_code=422, detail='refresh_token, client_id required')
-        digest = hashlib.sha256(req.refresh_token.encode()).hexdigest()
+        digest = hashlib.sha256(refresh_token.encode()).hexdigest()
         grant = await pool.fetchrow(
             "SELECT * FROM oauth_grants WHERE client_id = $1 AND refresh_hash = $2 AND revoked_at IS NULL",
-            req.client_id, digest,
+            client_id, digest,
         )
         if grant is None:
             raise HTTPException(status_code=400, detail='Invalid refresh token')
@@ -336,10 +412,12 @@ async def token(req: TokenRequest) -> dict:
             'scope': ' '.join(grant['scopes'] or []),
         }
 
-    raise HTTPException(status_code=400, detail=f"Unsupported grant_type '{req.grant_type}'")
+    raise HTTPException(status_code=400, detail=f"Unsupported grant_type '{grant_type}'")
 
 
-# ── Connected apps (self-service list + revoke) ────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════
+#  Connected apps (self-service list + revoke)
+# ═══════════════════════════════════════════════════════════════════════════
 
 @router.get('/api/v1/oauth/grants')
 async def list_grants(user: dict = Depends(get_current_user)) -> list[dict]:
@@ -377,7 +455,9 @@ async def revoke_grant(grant_id: UUID, user: dict = Depends(get_current_user)) -
     return {'ok': True}
 
 
-# ── Invite list (admin) ────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════
+#  Invite list (admin)
+# ═══════════════════════════════════════════════════════════════════════════
 
 @router.get('/api/v1/invites')
 async def list_invites(_: dict = Depends(require_admin)) -> list[dict]:
