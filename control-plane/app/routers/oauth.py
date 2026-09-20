@@ -185,7 +185,7 @@ async def oauth_metadata() -> dict:
         'grant_types_supported': ['authorization_code', 'refresh_token'],
         'code_challenge_methods_supported': ['S256'],
         'token_endpoint_auth_methods_supported': ['none', 'client_secret_post'],
-        'client_id_metadata_document_supported': True,
+        'client_id_metadata_document_supported': False,
     }
 
 
@@ -229,6 +229,9 @@ async def client_info(client_id: str) -> dict:
     pool = await get_pool()
     row = await pool.fetchrow('SELECT client_id, name FROM oauth_clients WHERE client_id = $1', client_id)
     if row is None:
+        # CIMD client (URL-based client_id) — not in our DB, return generic info
+        if client_id.startswith('http'):
+            return {'client_id': client_id, 'name': 'External MCP Client'}
         raise HTTPException(status_code=404, detail='Unknown client')
     return {'client_id': row['client_id'], 'name': row['name']}
 
