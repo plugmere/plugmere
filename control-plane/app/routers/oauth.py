@@ -22,6 +22,7 @@ from uuid import UUID
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from ..config import get_config
@@ -180,10 +181,25 @@ async def client_info(client_id: str) -> dict:
 # ── Approve (logged-in user + invite check + consent → auth code) ───────────
 
 @router.get('/api/v1/oauth/authorize')
-async def authorize_hint() -> dict:
-    """Browsers land here from ChatGPT; the dashboard /oauth/approve page
-    handles login+consent and POSTs to /approve. This hint keeps direct hits sane."""
-    return {'hint': 'Use the dashboard Approve page to authorize this client.'}
+async def authorize_redirect(
+    client_id: str = '',
+    redirect_uri: str = '',
+    scope: str = '',
+    state: str = '',
+    code_challenge: str = '',
+    response_type: str = '',
+) -> RedirectResponse:
+    """OAuth authorization endpoint — redirects to dashboard approve page."""
+    cfg = get_config()
+    ui = cfg.ui_url.rstrip('/')
+    params = '&'.join(f'{k}={v}' for k, v in [
+        ('client_id', client_id),
+        ('redirect_uri', redirect_uri),
+        ('scope', scope),
+        ('state', state),
+        ('code_challenge', code_challenge),
+    ] if v)
+    return RedirectResponse(f'{ui}/oauth/approve?{params}')
 
 
 @router.post('/api/v1/oauth/approve')
