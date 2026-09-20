@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
 
 from ..config import get_config
 from ..db import get_pool
@@ -31,9 +33,10 @@ DCR_SPAM_THRESHOLD = 10
 QUOTA_PCT = 0.8
 
 
-async def _send_brevo(subject: str, body: str) -> bool:
+async def _send_brevo(subject: str, body: str, to: str | None = None) -> bool:
     cfg = get_config()
-    if not cfg.brevo_api_key or not cfg.alert_to:
+    recipient = to or cfg.alert_to
+    if not cfg.brevo_api_key or not recipient:
         log.warning('Alerts misconfigured: BREVO_API_KEY/ALERT_TO missing')
         return False
     try:
@@ -43,7 +46,7 @@ async def _send_brevo(subject: str, body: str) -> bool:
                 headers={'api-key': cfg.brevo_api_key, 'Content-Type': 'application/json'},
                 json={
                     'sender': {'email': cfg.alert_to, 'name': 'Plugmere Alerts'},
-                    'to': [{'email': cfg.alert_to}],
+                    'to': [{'email': recipient}],
                     'subject': subject,
                     'textContent': body,
                 },
@@ -53,6 +56,27 @@ async def _send_brevo(subject: str, body: str) -> bool:
     except Exception as e:
         log.error('Brevo send failed: %s', e)
         return False
+
+
+async def _probe(url: str, timeout_s: float = 10.0) -> tuple[bool, int]:
+    """GET a health URL. Returns (ok, latency_ms)."""
+    start = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=timeout_s) as client:
+            r = await client.get(url)
+            ms = int((time.monotonic() - start) * 1000)
+            return (r.status_code < 500, ms)
+    except Exception:
+        return (False, int((time.monotonic() - start) * 1000))
+
+
+async def _record_status(pool, service: str, ok: bool, latency_ms: int) -> None:
+    await pool.execute(
+        'INSERT INTO status_checks (service, ok, latency_ms) VALUES ($1, $2, $3)',
+        service, ok, latency_ms,
+    )
+    # Prune history older than 90 days
+    await pool.execute("DELETE FROM status_checks WHERE created_at < now() - make_interval(days => 90)")
 
 
 @router.post('/api/v1/alerts/check')
@@ -106,11 +130,111 @@ async def check_alerts(request: Request, test: bool = False) -> dict:
     if findings:
         body = 'Plugmere abuse monitor fired:\n\n' + '\n'.join(f'- {f}' for f in findings)
         sent = await _send_brevo(f'[Plugmere] {len(findings)} alert(s)', body)
+        # Notify status-page subscribers on provider outages
+        if any(f.startswith('provider_down') for f in findings):
+            subs = await pool.fetch('SELECT email FROM status_subscribers')
+            for s in subs:
+                await _send_brevo(
+                    '[Plugmere] Service disruption',
+                    'One or more providers are failing:\n\n' + '\n'.join(f'- {f}' for f in findings
+                        if f.startswith('provider_down')) + '\n\nLive status: ' + cfg.app_url.replace('api', 'status'),
+                    to=s['email'],
+                )
         await pool.execute(
             "INSERT INTO audit_log (actor_type, actor_id, action, target, metadata) "
             "VALUES ('system', 'alerts', 'alerts.fired', $1, '{}')",
             '; '.join(findings)[:500],
         )
+
+    # Status history probes (every run, findings or not)
+    api_ok, api_ms = True, 0  # this endpoint ran = API alive
+    await _record_status(pool, 'api', api_ok, api_ms)
+    try:
+        db_start = time.monotonic()
+        await pool.fetchval('SELECT 1')
+        await _record_status(pool, 'neon', True, int((time.monotonic() - db_start) * 1000))
+    except Exception:
+        await _record_status(pool, 'neon', False, 0)
+    nango_ok, nango_ms = await _probe(cfg.nango_host.rstrip('/') + '/health')
+    await _record_status(pool, 'nango', nango_ok, nango_ms)
+
+    if findings:
         return {'ok': True, 'fired': findings, 'emailed': sent}
 
     return {'ok': True, 'fired': []}
+
+
+# ── Public status API (no auth — feeds the status page) ────────────────────
+
+@router.get('/api/v1/status')
+async def status_current() -> dict:
+    """Latest probe per service + overall."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        'SELECT DISTINCT ON (service) service, ok, latency_ms, created_at '
+        'FROM status_checks ORDER BY service, created_at DESC'
+    )
+    services = {
+        r['service']: {
+            'ok': r['ok'], 'latency_ms': r['latency_ms'],
+            'checked_at': r['created_at'].isoformat(),
+        }
+        for r in rows
+    }
+    return {
+        'overall': 'up' if services and all(s['ok'] for s in services.values()) else 'degraded',
+        'services': services,
+    }
+
+
+@router.get('/api/v1/status/history')
+async def status_history(days: int = 7) -> dict:
+    """Per-day up/down counts per service for the history strip."""
+    days = max(1, min(days, 90))
+    pool = await get_pool()
+    rows = await pool.fetch(
+        'SELECT service, date_trunc(\'day\', created_at)::date AS day, '
+        'count(*) AS checks, count(*) FILTER (WHERE ok) AS ups '
+        'FROM status_checks WHERE created_at > now() - make_interval(days => $1) '
+        'GROUP BY service, day ORDER BY day',
+        days,
+    )
+    out: dict[str, list[dict]] = {}
+    for r in rows:
+        out.setdefault(r['service'], []).append({
+            'day': r['day'].isoformat(), 'checks': r['checks'], 'ups': r['ups'],
+        })
+    return {'days': days, 'history': out}
+
+
+@router.get('/api/v1/status/incidents')
+async def status_incidents(limit: int = 20) -> list[dict]:
+    """Recent fired alerts from the audit log = incident timeline."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        "SELECT target, created_at FROM audit_log WHERE action = 'alerts.fired' "
+        'ORDER BY created_at DESC LIMIT $1',
+        max(1, min(limit, 100)),
+    )
+    return [{'summary': r['target'], 'at': r['created_at'].isoformat()} for r in rows]
+
+
+class SubscribeRequest(BaseModel):
+    email: str
+
+
+@router.post('/api/v1/status/subscribe', status_code=201)
+async def status_subscribe(req: SubscribeRequest) -> dict:
+    pool = await get_pool()
+    email = req.email.lower().strip()
+    if '@' not in email:
+        raise HTTPException(status_code=422, detail='Invalid email')
+    await pool.execute('INSERT INTO status_subscribers (email) VALUES ($1) ON CONFLICT DO NOTHING', email)
+    return {'ok': True}
+
+
+@router.post('/api/v1/status/unsubscribe')
+async def status_unsubscribe(req: SubscribeRequest) -> dict:
+    pool = await get_pool()
+    await pool.execute('DELETE FROM status_subscribers WHERE email = $1', req.email.lower().strip())
+    return {'ok': True}

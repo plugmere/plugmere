@@ -166,6 +166,21 @@ CREATE TABLE IF NOT EXISTS invite_list (
     added_by    UUID REFERENCES users(id),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Status page (Phase 8 #11): 15-min health history + outage subscribers
+CREATE TABLE IF NOT EXISTS status_checks (
+    id          BIGSERIAL PRIMARY KEY,
+    service     TEXT NOT NULL,
+    ok          BOOLEAN NOT NULL,
+    latency_ms  INTEGER,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_status_checks_service ON status_checks(service, created_at);
+
+CREATE TABLE IF NOT EXISTS status_subscribers (
+    email       TEXT PRIMARY KEY,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 
