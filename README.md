@@ -28,6 +28,7 @@
   <img src="https://img.shields.io/badge/React-Dashboard-61DAFB?logo=react&logoColor=white" alt="React"/>
   <img src="https://img.shields.io/badge/Postgres-Neon-336791?logo=postgresql&logoColor=white" alt="Neon Postgres"/>
   <img src="https://img.shields.io/badge/Redis-Upstash-DC382D?logo=redis&logoColor=white" alt="Upstash Redis"/>
+  <img src="https://img.shields.io/badge/Supabase-Auth-3ECF8E?logo=supabase&logoColor=white" alt="Supabase Auth"/>
   <img src="https://img.shields.io/badge/Nango-OAuth_Vault-7d7fe9" alt="Nango"/>
   <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fplugmere-api.onrender.com%2Fapi%2Fv1%2Fstatus&query=%24.tools&label=tools&color=important" alt="Live tool count"/>
   <img src="https://img.shields.io/badge/license-Apache--2.0-green" alt="Apache-2.0 License"/>
