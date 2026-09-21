@@ -128,7 +128,7 @@ SUPABASE_JWT_SECRET="..."
 python plugmere/server.py
 ```
 
-Open `http://localhost:8000/api/v1/health` — gateway lives at `/mcp`, control plane at `/api/v1/*`.
+Open `http://localhost:8000/api/v1/health` — gateway lives at `/mcp`, control plane at `/api/v1/*`, auto-generated OpenAPI docs at `/openapi.json`.
 
 ## Project Structure
 
