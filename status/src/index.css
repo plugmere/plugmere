@@ -4,33 +4,65 @@
 
 :root {
   color-scheme: dark;
+  --canvas: #0b0f17;
+  --surface: #111827;
+  --emerald: #10b981;
+  --cyan: #06b6d4;
+  --amber: #f59e0b;
+  --rose: #f43f5e;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--canvas);
 }
 
 body {
-  background: oklch(0.12 0.01 260);
-  color: oklch(0.93 0.01 260);
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  color: #f9fafb;
+  font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
+  overscroll-behavior: none;
 }
 
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
-  50% { opacity: 0.55; }
+.font-mono2 {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
 }
 
-.pulse-dot {
-  animation: pulse-dot 2s ease-in-out infinite;
+/* heartbeat dot with halo ping */
+@keyframes halo-ping {
+  0% { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(2.6); opacity: 0; }
 }
 
-@keyframes scan {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(400%); }
+.halo {
+  position: relative;
 }
 
-.scanline::after {
+.halo::before {
   content: '';
   position: absolute;
   inset: 0;
-  width: 25%;
-  background: linear-gradient(90deg, transparent, oklch(0.7 0.15 150 / 0.08), transparent);
-  animation: scan 6s linear infinite;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: halo-ping 2s ease-out infinite;
+}
+
+/* hero badge glow */
+.glow-operational {
+  box-shadow: 0 0 24px 0 rgba(16, 185, 129, 0.35), 0 0 64px 0 rgba(16, 185, 129, 0.15);
+}
+
+.glow-degraded {
+  box-shadow: 0 0 24px 0 rgba(245, 158, 11, 0.35), 0 0 64px 0 rgba(245, 158, 11, 0.15);
+}
+
+/* slow ambient drift for backdrop */
+@keyframes drift {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -24px, 0); }
+}
+
+.drift {
+  animation: drift 14s ease-in-out infinite;
 }
