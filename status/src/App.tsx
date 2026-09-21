@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Bell, CheckCircle2, CircleAlert, TriangleAlert, XCircle,
 } from 'lucide-react'
@@ -51,14 +51,104 @@ const DAY_CLASS: Record<string, string> = {
   none: 'bg-white/10',
 }
 
+function useCountUp(target: number | null, duration = 900): number | null {
+  const [val, setVal] = useState<number | null>(null)
+  const fromRef = useRef(0)
+  useEffect(() => {
+    if (target === null) {
+      setVal(null)
+      return
+    }
+    const from = fromRef.current
+    if (from === target) {
+      setVal(target)
+      return
+    }
+    let raf = 0
+    const start = performance.now()
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / duration)
+      const eased = 1 - Math.pow(1 - t, 3)
+      const v = Math.round(from + (target - from) * eased)
+      setVal(v)
+      if (t < 1) raf = requestAnimationFrame(tick)
+      else fromRef.current = target
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [target, duration])
+  return val
+}
+
 function uptimePct(days: DayBucket[]): number {
   const checks = days.reduce((a, d) => a + d.checks, 0)
   const ups = days.reduce((a, d) => a + d.ups, 0)
   return checks === 0 ? 100 : (ups / checks) * 100
 }
 
-function timeAgo(iso: string): string {
-  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000))
+function ServiceCard({ meta, state, days, index }: {
+  meta: { key: string; label: string; sub: string }
+  state: ServiceState | undefined
+  days: DayBucket[]
+  index: number
+}) {
+  const up = state?.ok ?? false
+  const latency = useCountUp(state ? state.latency_ms : null)
+  return (
+    <div
+      className="rise rounded-lg border border-white/[0.08] bg-[#111827]/85 p-5 backdrop-blur-xl transition-all hover:-translate-y-px hover:border-white/[0.18]"
+      style={{ animationDelay: `${0.15 + index * 0.1}s` }}
+    >
+      <div className="flex items-center gap-2">
+        <span className={`halo inline-block size-1.5 rounded-full ${state ? (up ? 'bg-[#10b981] text-[#10b981]' : 'bg-[#f43f5e] text-[#f43f5e]') : 'bg-[#64748b] text-[#64748b]'}`} />
+        <h3 className="text-[15px] font-medium">{meta.label}</h3>
+        <span
+          className={`font-mono2 ml-auto rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
+            state
+              ? up
+                ? 'bg-[#10b981]/15 text-[#10b981]'
+                : 'bg-[#f43f5e]/15 text-[#f43f5e]'
+              : 'bg-white/[0.06] text-[#94a3b8]'
+          }`}
+        >
+          {state ? (up ? 'Operational' : 'Down') : 'Probing…'}
+        </span>
+      </div>
+      <p className="font-mono2 mt-1 text-[11px] text-[#64748b]">{meta.sub} · 90-day window</p>
+
+      <div className="mt-3 flex items-baseline gap-2">
+        <span className="font-mono2 text-3xl font-semibold">{latency === null ? '—' : latency}</span>
+        <span className="font-mono2 text-xs text-[#64748b]">ms avg response</span>
+        <span className="font-mono2 ml-auto text-xs text-[#10b981]">{uptimePct(days).toFixed(2)}%</span>
+      </div>
+
+      {/* 90-day sticks */}
+      <div className="mt-2 flex h-8 items-stretch gap-[2px]">
+        {Array.from({ length: 90 }).map((_, i) => {
+          const b = days[days.length - 90 + i]
+          const st = b ? dayState(b) : 'none'
+          const title = b
+            ? `${b.day}: ${b.ups}/${b.checks} probes up`
+            : 'no data yet'
+          return (
+            <div
+              key={i}
+              title={title}
+              className={`flex-1 cursor-pointer rounded-[1px] transition-all duration-200 hover:scale-y-125 hover:opacity-100 ${DAY_CLASS[st]}`}
+              style={{ opacity: st === 'none' ? 0.5 : 1 }}
+            />
+          )
+        })}
+      </div>
+      <div className="font-mono2 mt-1.5 flex justify-between text-[10px] text-[#64748b]">
+        <span>90 days ago</span>
+        <span>Today</span>
+      </div>
+    </div>
+  )
+}
+
+function timeAgo(iso: string): string {  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000))
   if (mins < 1) return 'just now'
   if (mins < 60) return `${mins} min ago`
   const hrs = Math.round(mins / 60)
@@ -123,6 +213,7 @@ export default function App() {
   const medianLatency = latencies.length
     ? Math.round([...latencies].sort((a, b) => a - b)[Math.floor(latencies.length / 2)])
     : null
+  const medianShown = useCountUp(medianLatency)
   const lastIncident = incidents[0]
 
   return (
@@ -156,9 +247,10 @@ export default function App() {
         </nav>
 
         {/* hero */}
-        <section className="mt-10 text-center">
+        <section className="rise mt-10 text-center">
           <div
-            className={`mx-auto flex size-14 items-center justify-center rounded-2xl ${
+            key={updatedAt || 'init'}
+            className={`flash mx-auto flex size-14 items-center justify-center rounded-2xl ${
               allUp ? 'bg-[#10b981]/15 text-[#10b981] glow-operational' : 'bg-[#f59e0b]/15 text-[#f59e0b] glow-degraded'
             }`}
           >
@@ -180,7 +272,7 @@ export default function App() {
             {[
               {
                 label: 'Median latency',
-                value: medianLatency === null ? '—' : `${medianLatency}ms`,
+                value: medianShown === null ? '—' : `${medianShown}ms`,
                 sub: 'across edge probes',
               },
               {
@@ -209,7 +301,7 @@ export default function App() {
         </section>
 
         {/* components */}
-        <section className="mt-12">
+        <section className="rise mt-12" style={{ animationDelay: '0.1s' }}>
           <div className="flex items-center gap-2">
             <span className="h-4 w-1 rounded-full bg-[#10b981]" />
             <h2 className="text-xl font-semibold tracking-tight">System Components</h2>
@@ -222,68 +314,20 @@ export default function App() {
           </div>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-3">
-            {SERVICE_META.map(({ key, label, sub }) => {
-              const s = services[key]
-              const days: DayBucket[] = history[key] ?? []
-              const up = s?.ok ?? false
-              return (
-                <div
-                  key={key}
-                  className="rounded-lg border border-white/[0.08] bg-[#111827]/85 p-5 backdrop-blur-xl transition-all hover:-translate-y-px hover:border-white/[0.18]"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className={`halo inline-block size-1.5 rounded-full ${s ? (up ? 'bg-[#10b981] text-[#10b981]' : 'bg-[#f43f5e] text-[#f43f5e]') : 'bg-[#64748b] text-[#64748b]'}`} />
-                    <h3 className="text-[15px] font-medium">{label}</h3>
-                    <span
-                      className={`font-mono2 ml-auto rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
-                        s
-                          ? up
-                            ? 'bg-[#10b981]/15 text-[#10b981]'
-                            : 'bg-[#f43f5e]/15 text-[#f43f5e]'
-                          : 'bg-white/[0.06] text-[#94a3b8]'
-                      }`}
-                    >
-                      {s ? (up ? 'Operational' : 'Down') : 'Probing…'}
-                    </span>
-                  </div>
-                  <p className="font-mono2 mt-1 text-[11px] text-[#64748b]">{sub} · 90-day window</p>
-
-                  <div className="mt-3 flex items-baseline gap-2">
-                    <span className="font-mono2 text-3xl font-semibold">{s ? s.latency_ms : '—'}</span>
-                    <span className="font-mono2 text-xs text-[#64748b]">ms avg response</span>
-                    <span className="font-mono2 ml-auto text-xs text-[#10b981]">{uptimePct(days).toFixed(2)}%</span>
-                  </div>
-
-                  {/* 90-day sticks */}
-                  <div className="mt-2 flex h-8 items-stretch gap-[2px]">
-                    {Array.from({ length: 90 }).map((_, i) => {
-                      const b = days[days.length - 90 + i]
-                      const st = b ? dayState(b) : 'none'
-                      const title = b
-                        ? `${b.day}: ${b.ups}/${b.checks} probes up`
-                        : 'no data yet'
-                      return (
-                        <div
-                          key={i}
-                          title={title}
-                          className={`flex-1 cursor-pointer rounded-[1px] transition-all duration-200 hover:scale-y-125 hover:opacity-100 ${DAY_CLASS[st]} ${st === 'none' ? '' : ''}`}
-                          style={{ opacity: st === 'none' ? 0.5 : 1 }}
-                        />
-                      )
-                    })}
-                  </div>
-                  <div className="font-mono2 mt-1.5 flex justify-between text-[10px] text-[#64748b]">
-                    <span>90 days ago</span>
-                    <span>Today</span>
-                  </div>
-                </div>
-              )
-            })}
+            {SERVICE_META.map((meta, i) => (
+              <ServiceCard
+                key={meta.key}
+                meta={meta}
+                state={services[meta.key]}
+                days={history[meta.key] ?? []}
+                index={i}
+              />
+            ))}
           </div>
         </section>
 
         {/* providers */}
-        <section className="mt-10">
+        <section className="rise mt-10" style={{ animationDelay: '0.25s' }}>
           <div className="flex items-center gap-2">
             <span className="h-4 w-1 rounded-full bg-[#06b6d4]" />
             <h2 className="text-xl font-semibold tracking-tight">Provider Traffic · last hour</h2>
@@ -320,7 +364,7 @@ export default function App() {
         </section>
 
         {/* incidents + subscribe */}
-        <section className="mt-10 grid gap-4 lg:grid-cols-5">
+        <section className="rise mt-10 grid gap-4 lg:grid-cols-5" style={{ animationDelay: '0.35s' }}>
           <div className="rounded-lg border border-white/[0.08] bg-[#111827]/85 p-5 lg:col-span-3">
             <div className="flex items-center gap-2">
               <CircleAlert className="size-4 text-[#94a3b8]" />
@@ -384,7 +428,7 @@ export default function App() {
 
         <footer className="font-mono2 mt-10 flex flex-wrap gap-2 pb-4 text-[11px] text-[#64748b]">
           <span>© 2026 Plugmere · metrics refresh continuously</span>
-          <span className="ml-auto">Median latency {medianLatency ?? '—'}ms · All systems nominal</span>
+          <span className="ml-auto">Median latency {medianShown ?? '—'}ms · All systems nominal</span>
         </footer>
       </div>
     </div>
