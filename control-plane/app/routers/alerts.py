@@ -184,6 +184,9 @@ async def status_current() -> dict:
     return {
         'overall': 'up' if services and all(s['ok'] for s in services.values()) else 'degraded',
         'services': services,
+        'tools': await pool.fetchval(
+            "SELECT count(*) FROM tool_registry WHERE enabled"
+        ),
     }
 
 
