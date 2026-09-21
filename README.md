@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://plugmere-dashboard.onrender.com/" target="_blank">
-    <img src="assets/banner.png" alt="Plugmere Banner" width="782" />
+    <img src="assets/banner.png" alt="Plugmere Banner" width="650" />
   </a>
 </p>
 
