@@ -32,7 +32,7 @@ from fastmcp import Context, FastMCP
 from fastmcp.server.dependencies import get_http_request
 
 from .abuse import check_abuse
-from .auth import authenticate_request, get_user_providers
+from .auth import authenticate_request, get_user_providers, invalidate_providers_cache
 from .circuit_breaker import record_call_result
 from .config import get_config
 from .db import apply_schema, close_pool, init_pool
@@ -230,9 +230,14 @@ async def _handle_tool_call(
         raw_key = authorization.split(' ', 1)[1].strip() if ' ' in authorization else authorization
         key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
 
-    # 1b. Connection check — user must have connected the provider
+    # 1b. Connection check — user must have connected the provider.
+    # Stale-cache guard: on deny, re-check live once so a just-connected
+    # provider is never wrongly refused (deny path only, so zero hot-path cost).
     my_providers = await _get_user_providers(ctx.pool, user_id)
     provider_key = tool_def.nango_provider_key or tool_def.provider
+    if tool_def.provider not in my_providers and provider_key not in my_providers:
+        invalidate_providers_cache(user_id)
+        my_providers = await _get_user_providers(ctx.pool, user_id)
     if tool_def.provider not in my_providers and provider_key not in my_providers:
         return {'success': False, 'error': {
             'code': 'NOT_CONNECTED',
