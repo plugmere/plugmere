@@ -110,11 +110,14 @@ async def delete_connection(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f'Nango delete failed: {e}') from e
 
-    pool = await db.get_pool()
-    owner = await pool.fetchval(
-        'SELECT user_id FROM user_connections WHERE nango_connection_id = $1',
-        nango_connection_id,
-    )
+    try:
+        pool = await db.get_pool()
+        owner = await pool.fetchval(
+            'SELECT user_id FROM user_connections WHERE nango_connection_id = $1',
+            nango_connection_id,
+        )
+    except Exception:
+        owner = None  # pool unavailable (tests/dev) — fall back to deleter
     invalidate_providers_cache(str(owner) if owner else str(user['id']))
     return {'ok': True}
 
