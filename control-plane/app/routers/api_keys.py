@@ -9,6 +9,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import TypeAdapter
 
+from gateway.auth import invalidate_user_cache
+
 from ..db import get_pool
 from ..deps import get_current_user
 from ..schemas import ApiKeyCreate, ApiKeyCreated
@@ -91,6 +93,7 @@ async def revoke_key(key_id: UUID, user: dict = Depends(get_current_user)) -> di
     )
     revoked = tag == 'UPDATE 1'
     if revoked:
+        invalidate_user_cache(str(row['user_id']))
         await pool.execute(
             'INSERT INTO audit_log (actor_type, actor_id, action, target, metadata) '
             "VALUES ('user', $1, 'key.revoked', $2, '{}')",

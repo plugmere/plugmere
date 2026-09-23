@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
@@ -146,17 +147,18 @@ async def check_alerts(request: Request, test: bool = False) -> dict:
             '; '.join(findings)[:500],
         )
 
-    # Status history probes (every run, findings or not)
-    api_ok, api_ms = True, 0  # this endpoint ran = API alive
-    await _record_status(pool, 'api', api_ok, api_ms)
-    try:
-        db_start = time.monotonic()
-        await pool.fetchval('SELECT 1')
-        await _record_status(pool, 'neon', True, int((time.monotonic() - db_start) * 1000))
-    except Exception:
-        await _record_status(pool, 'neon', False, 0)
-    nango_ok, nango_ms = await _probe(cfg.nango_host.rstrip('/') + '/')
-    await _record_status(pool, 'nango', nango_ok, nango_ms)
+    # Status history probes (hourly — top-of-hour run only; abuse checks stay 15min)
+    if datetime.now(timezone.utc).minute < 15:
+        api_ok, api_ms = True, 0  # this endpoint ran = API alive
+        await _record_status(pool, 'api', api_ok, api_ms)
+        try:
+            db_start = time.monotonic()
+            await pool.fetchval('SELECT 1')
+            await _record_status(pool, 'neon', True, int((time.monotonic() - db_start) * 1000))
+        except Exception:
+            await _record_status(pool, 'neon', False, 0)
+        nango_ok, nango_ms = await _probe(cfg.nango_host.rstrip('/') + '/')
+        await _record_status(pool, 'nango', nango_ok, nango_ms)
 
     if findings:
         return {'ok': True, 'fired': findings, 'emailed': sent}

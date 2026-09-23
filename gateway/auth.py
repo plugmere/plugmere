@@ -19,7 +19,15 @@ log = logging.getLogger(__name__)
 
 # In-memory key cache: key_hash -> (expiry, user_id, api_key_id, allowed_tools)
 _key_cache: dict[str, tuple[float, str, str | None, list[str]]] = {}
-_CACHE_TTL = 60  # seconds
+_CACHE_TTL = 600  # seconds (10 min; revokes bust the cache instantly, see below)
+
+# Grant cache: grant_id -> (expiry, user_id). Short TTL keeps revoke <60s.
+_grant_cache: dict[str, tuple[float, str]] = {}
+_GRANT_TTL = 30  # seconds
+
+# Providers cache: user_id -> (expiry, providers). Busted on connect/disconnect.
+_providers_cache: dict[str, tuple[float, frozenset[str]]] = {}
+_PROVIDERS_TTL = 300  # seconds (5 min)
 
 
 def _hash_key(raw_key: str) -> str:
@@ -108,7 +116,12 @@ async def _verify_oauth_jwt(token: str, pool: asyncpg.Pool) -> tuple[str, None, 
         log.warning("OAuth token without mcp:tools scope: grant=%s", grant_id)
         return None
 
-    # Live revocation + status check (no cache — revoke must propagate fast)
+    # Live revocation + status check (30s cache — revoke still propagates in <60s)
+    now = time.time()
+    grant_id = str(grant_id)
+    cached = _grant_cache.get(grant_id)
+    if cached and cached[0] > now:
+        return (cached[1], None, [])
     row = await pool.fetchrow(
         "SELECT g.revoked_at, u.status FROM oauth_grants g "
         "JOIN users u ON u.id = g.user_id "
@@ -118,6 +131,7 @@ async def _verify_oauth_jwt(token: str, pool: asyncpg.Pool) -> tuple[str, None, 
     if row is None or row["revoked_at"] is not None or row["status"] != "active":
         return None
 
+    _grant_cache[grant_id] = (now + _GRANT_TTL, user_id)
     return (user_id, None, [])
 
 
@@ -146,3 +160,45 @@ async def authenticate_request(
 def invalidate_key_cache(key_hash: str) -> None:
     """Called by control plane on key revoke."""
     _key_cache.pop(key_hash, None)
+
+
+def invalidate_user_cache(user_id: str) -> None:
+    """Drop all cached key + provider entries for a user (revoke/disable/delete)."""
+    user_id = str(user_id)
+    for key_hash, cached in list(_key_cache.items()):
+        if cached[1] == user_id:
+            _key_cache.pop(key_hash, None)
+    _providers_cache.pop(user_id, None)
+
+
+def invalidate_grant_cache(grant_id: str) -> None:
+    """Called by control plane on OAuth grant revoke."""
+    _grant_cache.pop(str(grant_id), None)
+
+
+def invalidate_providers_cache(user_id: str) -> None:
+    """Called by control plane on connect/disconnect/API-key change."""
+    _providers_cache.pop(str(user_id), None)
+
+
+async def get_user_providers(pool: asyncpg.Pool, user_id: str) -> set[str]:
+    """Provider keys the user can access (OAuth + API-key). Cached 5 min."""
+    now = time.time()
+    cached = _providers_cache.get(user_id)
+    if cached and cached[0] > now:
+        return set(cached[1])
+
+    rows = await pool.fetch(
+        "SELECT DISTINCT provider FROM user_connections WHERE user_id = $1 AND status = 'active'",
+        user_id,
+    )
+    providers = {r['provider'] for r in rows}
+
+    key_rows = await pool.fetch(
+        'SELECT DISTINCT provider FROM user_api_keys WHERE user_id = $1',
+        user_id,
+    )
+    providers.update(r['provider'] for r in key_rows)
+
+    _providers_cache[user_id] = (now + _PROVIDERS_TTL, frozenset(providers))
+    return providers

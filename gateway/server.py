@@ -32,7 +32,7 @@ from fastmcp import Context, FastMCP
 from fastmcp.server.dependencies import get_http_request
 
 from .abuse import check_abuse
-from .auth import authenticate_request
+from .auth import authenticate_request, get_user_providers
 from .circuit_breaker import record_call_result
 from .config import get_config
 from .db import apply_schema, close_pool, init_pool
@@ -110,19 +110,7 @@ def _get_authorization() -> str:
 
 async def _get_user_providers(pool: asyncpg.Pool, user_id: str) -> set[str]:
     """Return set of provider keys the user has access to (OAuth + API-key providers)."""
-    rows = await pool.fetch(
-        "SELECT DISTINCT provider FROM user_connections WHERE user_id = $1 AND status = 'active'",
-        user_id,
-    )
-    providers = {r['provider'] for r in rows}
-
-    key_rows = await pool.fetch(
-        'SELECT DISTINCT provider FROM user_api_keys WHERE user_id = $1',
-        user_id,
-    )
-    providers.update(r['provider'] for r in key_rows)
-
-    return providers
+    return await get_user_providers(pool, user_id)
 
 
 # ── Health check resource ───────────────────────────────────────────────────

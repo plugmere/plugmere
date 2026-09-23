@@ -5,6 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from gateway.auth import invalidate_providers_cache
+
 from ..db import get_pool
 from ..deps import get_current_user
 
@@ -70,6 +72,7 @@ async def save_api_key(req: SaveApiKeyRequest, user: dict = Depends(get_current_
            DO UPDATE SET api_key = $3, updated_at = now()""",
         user['id'], req.provider, req.api_key,
     )
+    invalidate_providers_cache(str(user['id']))
     return {'status': 'ok', 'provider': req.provider}
 
 
@@ -83,4 +86,5 @@ async def delete_api_key(provider: str, user: dict = Depends(get_current_user)) 
     )
     if result == 'DELETE 0':
         raise HTTPException(status_code=404, detail='No API key for this provider')
+    invalidate_providers_cache(str(user['id']))
     return {'status': 'deleted', 'provider': provider}

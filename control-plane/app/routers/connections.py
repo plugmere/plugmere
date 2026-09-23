@@ -18,6 +18,8 @@ import logging
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from gateway.auth import invalidate_providers_cache
+
 from .. import db
 
 log = logging.getLogger(__name__)
@@ -74,7 +76,17 @@ async def nango_webhook(request: Request):
 
     try:
         if operation == 'deletion':
+            try:
+                pool = await db.get_pool()
+                owner = await pool.fetchval(
+                    'SELECT user_id FROM user_connections WHERE nango_connection_id = $1',
+                    str(connection_id),
+                )
+            except Exception:
+                owner = None  # pool unavailable (tests/dev) — skip invalidation
             await db.delete_connection(str(connection_id))
+            if owner:
+                invalidate_providers_cache(str(owner))
             return {'ok': True, 'action': 'deleted'}
 
         if user_id is None:
@@ -84,6 +96,7 @@ async def nango_webhook(request: Request):
         if operation in _ACTIVE_OPERATIONS or operation == 'refresh':
             status = 'active' if success else 'error'
             await db.upsert_connection(user_id, str(provider), str(connection_id), status)
+            invalidate_providers_cache(str(user_id))
             return {'ok': True, 'action': status}
         return {'ok': True, 'ignored': f'unhandled operation {operation}'}
     except Exception as e:

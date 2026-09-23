@@ -6,10 +6,10 @@
 
 <p align="center">
   <a href="https://plugmere-dashboard.vercel.app/" target="_blank">
-    <img src="https://img.shields.io/badge/Live_Dashboard-Render-46E3B7?logo=render&logoColor=white" alt="Live Dashboard"/>
+    <img src="https://img.shields.io/badge/Live_Dashboard-Vercel-black?logo=vercel&logoColor=white" alt="Live Dashboard"/>
   </a>
   <a href="https://plugmere-status.vercel.app/" target="_blank">
-    <img src="https://img.shields.io/badge/Status-Live-00dcdc?logo=statuspage&logoColor=white" alt="Status Page"/>
+    <img src="https://img.shields.io/badge/Status-Vercel-black?logo=vercel&logoColor=white" alt="Status Page"/>
   </a>
 </p>
 

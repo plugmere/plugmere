@@ -13,6 +13,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 
+from gateway.auth import invalidate_providers_cache
+
 from .. import db
 from ..config import get_config
 from ..deps import get_current_user
@@ -108,6 +110,12 @@ async def delete_connection(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f'Nango delete failed: {e}') from e
 
+    pool = await db.get_pool()
+    owner = await pool.fetchval(
+        'SELECT user_id FROM user_connections WHERE nango_connection_id = $1',
+        nango_connection_id,
+    )
+    invalidate_providers_cache(str(owner) if owner else str(user['id']))
     return {'ok': True}
 
 
@@ -147,6 +155,7 @@ async def sync_connections(user: dict = Depends(get_current_user)) -> dict[str, 
             if await db.delete_connection(r['nango_connection_id']):
                 pruned += 1
 
+    invalidate_providers_cache(user_id)
     return {'synced': synced, 'pruned': pruned}
 
 

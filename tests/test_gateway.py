@@ -49,6 +49,13 @@ class TestAuth:
 class TestOAuthJwt:
     """Gateway OAuth JWT branch: scope enforcement + live revocation."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_grant_cache(self):
+        import gateway.auth as auth_mod
+        auth_mod._grant_cache.clear()
+        yield
+        auth_mod._grant_cache.clear()
+
     def _mint(self, sub='u1', grant='g1', scope='mcp:tools', secret='test-secret'):
         return pyjwt.encode(
             {'iss': 'x', 'sub': sub, 'grant_id': grant, 'scope': scope,

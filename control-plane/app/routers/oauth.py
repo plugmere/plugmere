@@ -22,6 +22,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
+from gateway.auth import invalidate_grant_cache
+
 from ..config import get_config
 from ..db import get_pool
 from ..deps import get_current_user, require_admin
@@ -475,6 +477,7 @@ async def revoke_grant(grant_id: UUID, user: dict = Depends(get_current_user)) -
     )
     if tag != 'UPDATE 1':
         raise HTTPException(status_code=404, detail='Grant not found')
+    invalidate_grant_cache(str(grant_id))
     await _audit(str(user['id']), 'oauth.revoke', str(grant_id), {})
     return {'ok': True}
 

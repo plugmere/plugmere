@@ -8,6 +8,8 @@ from uuid import UUID
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 
+from gateway.auth import invalidate_user_cache
+
 from ..db import get_pool
 from ..deps import require_admin
 from ..schemas import UserCreate, UserPatch
@@ -91,6 +93,7 @@ async def patch_user(user_id: UUID, req: UserPatch, actor: dict = Depends(requir
 
     changes = {k: v for k, v in req.model_dump().items() if v is not None}
     if 'status' in changes and changes['status'] == 'disabled':
+        invalidate_user_cache(str(user_id))
         await _audit(actor, 'user.disabled', str(user_id), changes)
     else:
         await _audit(actor, 'user.updated', str(user_id), changes)
@@ -104,5 +107,6 @@ async def delete_user(user_id: UUID, actor: dict = Depends(require_admin)) -> di
     if row is None:
         raise HTTPException(status_code=404, detail='User not found')
     await pool.execute('DELETE FROM users WHERE id = $1', user_id)
+    invalidate_user_cache(str(user_id))
     await _audit(actor, 'user.deleted', str(user_id), {'email': row['email']})
     return {'ok': True}
