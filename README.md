@@ -1,14 +1,14 @@
 <p align="center">
-  <a href="https://plugmere-dashboard.onrender.com/" target="_blank">
+  <a href="https://plugmere-dashboard.vercel.app/" target="_blank">
     <img src="assets/banner.png" alt="Plugmere Banner" width="650" />
   </a>
 </p>
 
 <p align="center">
-  <a href="https://plugmere-dashboard.onrender.com/" target="_blank">
+  <a href="https://plugmere-dashboard.vercel.app/" target="_blank">
     <img src="https://img.shields.io/badge/Live_Dashboard-Render-46E3B7?logo=render&logoColor=white" alt="Live Dashboard"/>
   </a>
-  <a href="https://plugmere-status.onrender.com/" target="_blank">
+  <a href="https://plugmere-status.vercel.app/" target="_blank">
     <img src="https://img.shields.io/badge/Status-Live-00dcdc?logo=statuspage&logoColor=white" alt="Status Page"/>
   </a>
 </p>
@@ -179,3 +179,4 @@ Apache-2.0 © [kairav7220](https://github.com/kairav7220)
   <a href="https://www.nango.dev">Nango</a> ·
   <a href="https://supabase.com">Supabase</a>
 </p>
+
