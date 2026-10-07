@@ -16,7 +16,7 @@ import { InvitesPage } from '@/pages/invites'
 import { Toaster } from '@/components/ui/sonner'
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
+  defaultOptions: { queries: { staleTime: 300_000, retry: 1 } },
 })
 
 export default function App() {
