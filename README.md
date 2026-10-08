@@ -14,8 +14,8 @@
   <a href="https://plugmere-landing-xi.vercel.app/" target="_blank">
     <img src="https://img.shields.io/badge/Marketing-Vercel-black?logo=vercel&logoColor=white" alt="Marketing Site"/>
   </a>
-  <a href="https://github.com/kairav7220/plugmere-docs" target="_blank">
-    <img src="https://img.shields.io/badge/Docs-GitHub-black?logo=github&logoColor=white" alt="Docs Repo"/>
+  <a href="https://plugmere-docs.vercel.app/" target="_blank">
+    <img src="https://img.shields.io/badge/Docs-Vercel-black?logo=vercel&logoColor=white" alt="Docs Site"/>
   </a>
 </p>
 
@@ -78,7 +78,7 @@ flowchart LR
 | **Dashboard** | React + Vite + Tailwind + shadcn/ui (`web/`) — live at [plugmere-dashboard.vercel.app](https://plugmere-dashboard.vercel.app/) |
 | **Status Page** | React + Vite (`status/`, 90-day probes via cron) — live at [plugmere-status.vercel.app](https://plugmere-status.vercel.app/) |
 | **Marketing Site** | React + Vite, Swiss editorial (`kairav7220/plugmere-landing`, private) — live at [plugmere-landing-xi.vercel.app](https://plugmere-landing-xi.vercel.app/) |
-| **Docs Site** | React + Vite, single-page guide (`kairav7220/plugmere-docs`, private) — deploy on Vercel to go live |
+| **Docs Site** | React + Vite, single-page guide (`kairav7220/plugmere-docs`, private) — live at [plugmere-docs.vercel.app](https://plugmere-docs.vercel.app/) |
 | **OAuth Vault** | Nango self-hosted (Docker, Render image deploy) |
 | **Database** | Neon Postgres (users, api_keys, tool_calls, metric_daily, tool_registry, oauth_*) |
 | **Cache/Limits** | Upstash Redis (rate limits, key cache, response cache) |
