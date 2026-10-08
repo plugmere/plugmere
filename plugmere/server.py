@@ -33,10 +33,9 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'control-plane'))
 
-from fastapi.middleware.gzip import GZipMiddleware
-
 from app.main import app  # noqa: E402
 from app.main import lifespan as control_plane_lifespan  # noqa: E402
+from fastapi.middleware.gzip import GZipMiddleware  # noqa: E402
 
 from gateway.server import mcp  # noqa: E402
 
