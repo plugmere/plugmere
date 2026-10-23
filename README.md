@@ -133,6 +133,13 @@ SUPABASE_URL="https://..."
 SUPABASE_JWT_SECRET="..."
 ```
 
+First-run bootstrap (fresh database — run once):
+
+```bash
+python scripts/init_admin.py you@example.com "Your Name"   # create the first admin
+python scripts/seed_registry.py import                     # load the curated tool menu (seed/tool_registry.json)
+```
+
 ```bash
 python plugmere/server.py
 ```

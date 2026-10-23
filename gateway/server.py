@@ -75,7 +75,7 @@ async def gateway_lifespan(server: FastMCP) -> AsyncIterator[GatewayContext]:
     registry = Registry()
     count = await registry.load_from_db(pool)
     if count == 0:
-        log.error('No tools in tool_registry — run POST /api/v1/tools/import first')
+        log.error('No tools in tool_registry — run: python scripts/seed_registry.py import')
     log.info('Loaded %d tools from tool_registry', count)
 
     ctx = GatewayContext(pool=pool, registry=registry, redis=redis_client, config=config)

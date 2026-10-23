@@ -59,5 +59,9 @@ scratch/
 gateway/.env
 control-plane/.env
 
+# Separate private repos (kairav7220/plugmere-landing, kairav7220/plugmere-docs) — never commit here
+landing/
+docs/
+
 # Google OAuth client secret (login provider credentials)
 client_secret_*.json

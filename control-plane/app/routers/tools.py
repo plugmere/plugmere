@@ -215,7 +215,14 @@ async def import_tools(admin: dict = Depends(require_admin)) -> dict:
     """Import/update tools from providers.json into the tool_registry table."""
     pool = await get_pool()
     cfg = get_config()
-    result = await import_providers_json(pool, cfg.providers_json_path)
+    try:
+        result = await import_providers_json(pool, cfg.providers_json_path)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=400,
+            detail='providers.json not found (it is not shipped with the repo). '
+            'For a fresh install run instead: python scripts/seed_registry.py import',
+        ) from None
 
     await pool.execute(
         "INSERT INTO audit_log (actor_type, actor_id, action, metadata) VALUES ('admin', $1, 'tool.imported', $2)",
