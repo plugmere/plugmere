@@ -59,6 +59,9 @@ scratch/
 gateway/.env
 control-plane/.env
 
+# Local MCP client config (contains a live API key)
+opencode.json
+
 # Separate private repos (kairav7220/plugmere-landing, kairav7220/plugmere-docs) — never commit here
 landing/
 docs/

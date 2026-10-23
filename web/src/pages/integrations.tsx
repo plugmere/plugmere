@@ -82,9 +82,10 @@ export function IntegrationsPage() {
         body: JSON.stringify({ provider: item.nango_provider_key }),
       })
       // SDK popup flow: opens /oauth/connect/{provider}?connect_session_token=…
-      // (verified server-side: redirects straight to Google login).
-      // No websocketsPath override — the SDK default matches this server.
-      const nango = new Nango({ connectSessionToken: session.token, host: NANGO_HOST })
+      // websocketsPath MUST match NANGO_SERVER_WEBSOCKETS_PATH (/connect, infra/nango compose):
+      // the SDK defaults to '/' but the server only upgrades /connect — mismatch 400s the
+      // WebSocket and strands the popup at about:blank.
+      const nango = new Nango({ connectSessionToken: session.token, host: NANGO_HOST, websocketsPath: '/connect' })
       await nango.auth(item.nango_provider_key)
 
       // Server-side dedup: remove older duplicates, keep newest
